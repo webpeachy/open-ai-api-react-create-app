@@ -22,7 +22,7 @@ node index.js <app_description>
 
 Replace `<app_description>` with a short description of the app you want to generate, e.g. "App to manage a todo list".
 
-The app will generate a React component based on the description and a Cypress test for the component. It will then create a new React app using `create-react-app`, copy the generated component into the app, install dependencies, build the app, and deploy it to an S3 bucket.
+The app will generate a React component based on the description and a Cypress test for the component. It will then create a new React app using `create-react-app`, copy the generated component into the app, install dependencies, build the app, and deploy it to a new S3 bucket.
 
 You can view the deployed app at `https://<bucket_name>.s3.amazonaws.com/index.html`, where `<bucket_name>` is the name of the S3 bucket you deployed the app to.
 
