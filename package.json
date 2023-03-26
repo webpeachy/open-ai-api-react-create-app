@@ -5,12 +5,15 @@
     "main": "index.js",
     "scripts": {
         "create-react-app": "npx create-react-app react-app",
-        "start": "cd react-app && npm start"
+        "start": "cd react-app && npm start",
+        "create-app-gpt": "node index.mjs"
     },
     "author": "Your Name",
     "license": "ISC",
     "dependencies": {
         "aws-sdk": "^2.1343.0",
+        "chalk": "^5.2.0",
+        "cli-progress": "^3.12.0",
         "dotenv": "^16.0.3",
         "fs": "^0.0.1-security",
         "openai": "^3.2.1",

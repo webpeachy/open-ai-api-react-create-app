@@ -1,11 +1,14 @@
-const { Configuration, OpenAIApi } = require("openai");
-const { exec } = require('child_process');
-const { promisify } = require('util');
-const AWS = require('aws-sdk');
-const fs = require('fs').promises;
-// const fsFull = require('fs').promises;
-const path = require('path');
-require('dotenv').config();
+import { Configuration, OpenAIApi } from "openai";
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import AWS from 'aws-sdk';
+import fs from 'fs/promises';
+import chalk from 'chalk';
+import cliProgress from 'cli-progress';
+import path from 'path';
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 const configuration = new Configuration({
     apiKey: process.env.API_KEY,
@@ -15,10 +18,26 @@ AWS.config.update({ region: 'us-east-1' });
 const s3 = new AWS.S3();
 const openai = new OpenAIApi(configuration);
 
-const callAPI = async (appDescription) => {
+
+const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+
+const callAPI = async () => {
+    const appDescription = await fs.readFile('app-description.txt', 'utf-8');
+    console.log(chalk.yellow(`Generating code for "${appDescription}"...`));
+    progressBar.start(100, 0);
+
+    const reactSpecs = [
+        'component name should be App',
+        'should be set with export default App',
+        'only return code for component and the first react import. no need the react-dom import',
+        'the react code should have import React, { useState } from "react" and use the react hook setState',
+        'also add a cypress test for the react componen we created',
+        'add // REACT-CODE before react code and // CYPRESS-CODE before cypress code'
+    ]
+    const promtText = `${appDescription}.${reactSpecs.join('. ')}`
     const response = await openai.createCompletion({
         model: "text-davinci-003",
-        prompt: `${appDescription}. component name should be App, and should be set with export default App. only return code for component and the first react import. no need the react-dom import. also add a cypress test for the react componen we created.  add // REACT-CODE before react code and // CYPRESS-CODE before cypress code`,
+        prompt: promtText,
         temperature: 0.7,
         max_tokens: 512,
         top_p: 1,
@@ -26,30 +45,45 @@ const callAPI = async (appDescription) => {
         presence_penalty: 0,
     });
 
-    const responseFilePath = path.join(__dirname, 'response.json');
+    progressBar.update(20);
+
+    const currentDir = path.dirname(new URL(import.meta.url).pathname);
+
+    const responseFilePath = path.join(currentDir, 'response.json');
     await fs.writeFile(responseFilePath, JSON.stringify(response.data.choices[0], null, 2));
-    console.log('Response written to:', responseFilePath);
+    progressBar.update(30);
+    console.log(chalk.green(`Response written to: ${responseFilePath}`));
 
     const text = response.data.choices[0].text;
 
-     const { reactCode, cypressCode} = await extractAndWriteCodeToFile  (text)
+    const { reactCode, cypressCode } = await extractAndWriteCodeToFile(text)
+
+    progressBar.update(40);
 
     const reactAppPath = './react-app';
-    // await deleteFolderRecursive(reactAppPath);
 
     await createReactApp();
+    progressBar.update(50);
     await copyReactCodeToReactApp(reactAppPath, reactCode);
+    progressBar.update(60);
     await installDependenciesAndBuildReactApp(reactAppPath);
+
+    progressBar.update(70);
 
     const buildPath = path.join(reactAppPath, 'build');
     const bucketName = await createRandomBucketName();
-
+    progressBar.update(80);
     await createBucket(bucketName);
+    progressBar.update(85);
     await setBucketPolicy(bucketName);
+    progressBar.update(90);
     await uploadBuildDirectoryToBucket(bucketName, buildPath);
 
-    console.log(`React app deployed successfully to S3 bucket: ${bucketName}`);
-    console.log(`View the app at: https://${bucketName}.s3.amazonaws.com/index.html`);
+    progressBar.update(100);
+    progressBar.stop();
+
+    console.log(chalk.green(`React app deployed successfully to S3 bucket: ${bucketName}`));
+    console.log(chalk.green(`View the app at: https://${bucketName}.s3.amazonaws.com/index.html  | `));
 };
 
 const extractAndWriteCodeToFile = async (text) => {
@@ -60,8 +94,8 @@ const extractAndWriteCodeToFile = async (text) => {
     const cypressCodeRegex = /\/\/ CYPRESS-CODE([\s\S]+)/g;
     const cypressCodeMatch = cypressCodeRegex.exec(text);
     const cypressCode = cypressCodeMatch ? cypressCodeMatch[1].trim() : '';
-
-    const srcDir = path.join(__dirname, 'src');
+    const currentDir = path.dirname(new URL(import.meta.url).pathname);
+    const srcDir = path.join(currentDir, 'src');
     await fs.mkdir(srcDir, { recursive: true });
 
     const reactFilePath = path.join(srcDir, 'react-app.js');
@@ -69,9 +103,10 @@ const extractAndWriteCodeToFile = async (text) => {
 
     await writeCodeToFile(reactFilePath, reactCode);
     await writeCodeToFile(cypressFilePath, cypressCode);
-
-    console.log('React app code written to:', reactFilePath);
-    console.log('Cypress test code written to:', cypressFilePath);
+    progressBar.update(35);
+    console.log(' | React app code written to:', reactFilePath);
+    progressBar.update(37);
+    console.log(' | Cypress test code written to:', cypressFilePath);
     return { reactCode, cypressCode}
 };
 
@@ -84,17 +119,19 @@ const createReactApp = async () => {
   
     try {
       // check if react app directory already exists
-      console.log(`Checking if React app directory exists at ${reactAppDir}...`);
+      console.log(`| Checking if React app directory exists at ${reactAppDir}...`);
       await fs.access(reactAppDir, 0);
-      console.log(`fs.access(${reactAppDir}, fs.constants.F_OK) returned true.`);
-      console.log(`React app directory already exists at ${reactAppDir}. Skipping creation.`);
+      progressBar.update(45);
+      console.log(` | React app directory already exists at ${reactAppDir}. Skipping creation.`);
       return;
     } catch (err) {
       // directory does not exist, create react app
+      progressBar.update(45);
       console.log(`fs.access(${reactAppDir}, fs.constants.F_OK) returned an error: ${err}`);
       const command = 'npx create-react-app react-app';
       await promisify(exec)(command);
-      console.log(`React app created at ${reactAppDir}.`);
+      progressBar.update(47);
+      console.log(` | React app created at ${reactAppDir}.`);
     }
   };
 
@@ -102,13 +139,15 @@ const createReactApp = async () => {
 const copyReactCodeToReactApp = async (reactAppPath, reactCode) => {
     const appFilePath = path.join(reactAppPath, 'src', 'App.js');
     await writeCodeToFile(appFilePath, reactCode);
-    console.log(`React app code written to: ${appFilePath}`);
+    progressBar.update(55);
+    console.log(` | React app code written to: ${appFilePath}`);
 };
 
 const installDependenciesAndBuildReactApp = async (reactAppPath) => {
     const command = `cd ${reactAppPath} && npm install && npm run build`;
     await promisify(exec)(command);
-    console.log(`React app built at ${path.join(reactAppPath, 'build')}`);
+    progressBar.update(65);
+    console.log(` | React app built at ${path.join(reactAppPath, 'build')}`);
 };
 
 const createRandomBucketName = async () => {
@@ -119,7 +158,7 @@ const createRandomBucketName = async () => {
 const createBucket = async (bucketName) => {
     const createBucketParams = { Bucket: bucketName };
     await s3.createBucket(createBucketParams).promise();
-    console.log(`S3 bucket created: ${bucketName}`);
+    console.log(` | S3 bucket created: ${bucketName}`);
 };
 
 const setBucketPolicy = async (bucketName) => {
@@ -136,7 +175,7 @@ const setBucketPolicy = async (bucketName) => {
 
     const setBucketPolicyParams = { Bucket: bucketName, Policy: JSON.stringify(publicReadPolicy) };
     await s3.putBucketPolicy(setBucketPolicyParams).promise();
-    console.log(`Bucket policy set for ${bucketName}`);
+    console.log(` | Bucket policy set for ${bucketName}`);
 };
 
 const uploadBuildDirectoryToBucket = async (bucketName, buildPath) => {
@@ -146,12 +185,3 @@ const uploadBuildDirectoryToBucket = async (bucketName, buildPath) => {
 
 const appDescription = process.argv[2] || 'App to manage a todo list';
 callAPI(appDescription);
-  
-const deleteFolderRecursive = async (path) => {
-    try {
-        exec(`rm -rf ${path}`);
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-    } catch (error) {
-        console.error(`Error deleting ${path}:`, error);
-    }
-};
