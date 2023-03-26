@@ -11,9 +11,20 @@ dotenv.config();
 
 
 const configuration = new Configuration({
-    apiKey: process.env.API_KEY,
+    apiKey: process.env.OPEN_AI_API_KEY,
 });
-AWS.config.update({ region: 'us-east-1' });
+
+let awsCredentials;
+const awsConfig = { region: 'us-east-1' }
+if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    awsCredentials = new AWS.Credentials({
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+    });
+
+    awsConfig.credentials = awsCredentials
+}
+AWS.config.update(awsConfig);
 
 const s3 = new AWS.S3();
 const openai = new OpenAIApi(configuration);
