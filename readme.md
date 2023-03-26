@@ -27,7 +27,3 @@ The app will generate a React component based on the description and a Cypress t
 You can view the deployed app at `https://<bucket_name>.s3.amazonaws.com/index.html`, where `<bucket_name>` is the name of the S3 bucket you deployed the app to.
 
 **WARNING: Running this app will create a new React app, add code and resources to your AWS account, and deploy the app to an S3 bucket with public read access. Be sure to review the generated code and resources carefully before deploying, and consider using a separate AWS account or IAM user with restricted permissions for testing purposes. Remember to remove any AWS resources created by this app when you're done using it.**
-
-The app will generate a React component based on the description and a Cypress test for the component. It will then create a new React app using `create-react-app`, copy the generated component into the app, install dependencies, build the app, and deploy it to an S3 bucket.
-
-You can view the deployed app at `https://<bucket_name>.s3.amazonaws.com/index.html`, where `<bucket_name>` is the name of the S3 bucket you deployed the app to.
