@@ -27,3 +27,19 @@ The app will generate a React component based on the description and a Cypress t
 You can view the deployed app at `https://<bucket_name>.s3.amazonaws.com/index.html`, where `<bucket_name>` is the name of the S3 bucket you deployed the app to.
 
 **WARNING: Running this app will create a new React app, add code and resources to your AWS account, and deploy the app to an S3 bucket with public read access. Be sure to review the generated code and resources carefully before deploying, and consider using a separate AWS account or IAM user with restricted permissions for testing purposes. Remember to remove any AWS resources created by this app when you're done using it.**
+
+## Using the Delete Script to Clean Buckets
+
+The `delete_s3_buckets.sh` script helps you delete specific AWS S3 buckets and their contents using the AWS CLI. This is useful when you want to clean up the S3 buckets created by the OpenAI React App Deployer.
+
+### Prerequisites
+
+1. You must have the AWS CLI installed on your system. You can download and install it from the [official AWS CLI website](https://aws.amazon.com/cli/).
+2. Ensure that your AWS CLI is configured with the appropriate access keys and region. You can use `aws configure` to set up your CLI.
+
+### Running the Delete Script
+
+1. Open a terminal and navigate to the root directory.
+
+2. Make the script executable by running the following command: `bash delete-buckets.sh`
+
