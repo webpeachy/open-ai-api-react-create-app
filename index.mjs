@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import cliProgress from 'cli-progress';
 import path from 'path';
 import dotenv from 'dotenv';
+import open from 'open';
 dotenv.config();
 
 
@@ -41,16 +42,19 @@ const callAPI = async () => {
         'component name should be App',
         'should be set with export default App',
         'only return code for component and the first react import. no need the react-dom import',
-        'the react code should have import React, { useState } from "react" and use the react hook setState',
+        'the react code should have import React, { useState, useEffect } from "react" and use the react hook setState',
+        'add to import line other hooks the code needs if the code uses other hooks than useState',
         'also add a cypress test for the react componen we created',
         'add // REACT-CODE before react code and // CYPRESS-CODE before cypress code'
     ]
+
     const promtText = `${appDescription}.${reactSpecs.join('. ')}`
+
     const response = await openai.createCompletion({
         model: "text-davinci-003",
         prompt: promtText,
         temperature: 0.7,
-        max_tokens: 512,
+        max_tokens: 1024,
         top_p: 1,
         frequency_penalty: 0,
         presence_penalty: 0,
@@ -94,7 +98,11 @@ const callAPI = async () => {
     progressBar.stop();
 
     console.log(chalk.green(`React app deployed successfully to S3 bucket: ${bucketName}`));
-    console.log(chalk.green(`View the app at: https://${bucketName}.s3.amazonaws.com/index.html  | `));
+    const bucketHtmlUrl = `https://${bucketName}.s3.amazonaws.com/index.html`
+    console.log(chalk.green(`View the app at:  ${bucketHtmlUrl} | `));
+
+    await open(bucketHtmlUrl, { app: 'google chrome' });
+    await copySrcToHistoryFolder();
 };
 
 const extractAndWriteCodeToFile = async (text) => {
@@ -193,6 +201,19 @@ const uploadBuildDirectoryToBucket = async (bucketName, buildPath) => {
     const s3UploadCommand = `aws s3 cp ${buildPath} s3://${bucketName} --recursive --metadata-directive REPLACE --cache-control max-age=31536000,public --exclude "*.map" --exclude "service-worker.js" --exclude "robots.txt" --include "*.html" --include "*.css" --acl public-read --content-encoding identity --storage-class REDUCED_REDUNDANCY`;
     await promisify(exec)(s3UploadCommand);
 };
+
+const copySrcToHistoryFolder = async () => {
+    const currentDir = process.cwd();
+    const srcDir = path.join(currentDir, 'src');
+    const historyDir = path.join(currentDir, 'history', new Date().toISOString().replace(/T/, '-').replace(/\..+/, '').replace(/:/g, "-"));
+  
+    await fs.mkdir(historyDir, { recursive: true });
+  
+    const command = `cp -r ${srcDir} ${historyDir}`;
+    await promisify(exec)(command);
+  
+    console.log(` | Copied src folder to ${historyDir}`);
+  };
 
 const appDescription = process.argv[2] || 'App to manage a todo list';
 callAPI(appDescription);
