@@ -8,6 +8,7 @@ import cliProgress from 'cli-progress';
 import path from 'path';
 import dotenv from 'dotenv';
 import open from 'open';
+import fetch  from "node-fetch";
 dotenv.config();
 
 
@@ -35,17 +36,15 @@ const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_cla
 
 const callAPI = async () => {
     const appDescription = await fs.readFile('app-description.txt', 'utf-8');
-    console.log(chalk.yellow(`Generating code for "${appDescription}"...`));
+    logMessage(`Generating code for "${appDescription}"...`);
+   // console.log(chalk.yellow());
     progressBar.start(100, 0);
 
     const reactSpecs = [
-        'component name should be App',
+        'component name should be App like this: const App = () => {',
         'should be set with export default App',
         'only return code for component and the first react import. no need the react-dom import',
         'the react code should have import React, { useState, useEffect } from "react" and use the react hook setState',
-        'add to import line other hooks the code needs if the code uses other hooks than useState',
-        'also add a cypress test for the react componen we created',
-        'add // REACT-CODE before react code and // CYPRESS-CODE before cypress code'
     ]
 
     const promtText = `${appDescription}.${reactSpecs.join('. ')}`
@@ -54,7 +53,7 @@ const callAPI = async () => {
         model: "text-davinci-003",
         prompt: promtText,
         temperature: 0.7,
-        max_tokens: 1024,
+        max_tokens: 2048,
         top_p: 1,
         frequency_penalty: 0,
         presence_penalty: 0,
@@ -67,11 +66,13 @@ const callAPI = async () => {
     const responseFilePath = path.join(currentDir, 'response.json');
     await fs.writeFile(responseFilePath, JSON.stringify(response.data.choices[0], null, 2));
     progressBar.update(30);
-    console.log(chalk.green(`Response written to: ${responseFilePath}`));
-
+    logMessage(`Response written to: ${responseFilePath}`);
     const text = response.data.choices[0].text;
 
-    const { reactCode, cypressCode } = await extractAndWriteCodeToFile(text)
+    // TODO: get cypress code to test component
+    //const { reactCode, cypressCode } = await extractAndWriteCodeToFile(text)
+  
+     const reactCode = await getReactCode(text)
 
     progressBar.update(40);
 
@@ -82,6 +83,8 @@ const callAPI = async () => {
     await copyReactCodeToReactApp(reactAppPath, reactCode);
     progressBar.update(60);
     await installDependenciesAndBuildReactApp(reactAppPath);
+    //TODO: set the app to be tested locally before depling to cloud.
+    //await runReactAppAndCypressTests();
 
     progressBar.update(70);
 
@@ -97,7 +100,7 @@ const callAPI = async () => {
     progressBar.update(100);
     progressBar.stop();
 
-    console.log(chalk.green(`React app deployed successfully to S3 bucket: ${bucketName}`));
+    logMessage(`React app deployed successfully to S3 bucket: ${bucketName}`)
     const bucketHtmlUrl = `https://${bucketName}.s3.amazonaws.com/index.html`
     console.log(chalk.green(`View the app at:  ${bucketHtmlUrl} | `));
 
@@ -105,7 +108,35 @@ const callAPI = async () => {
     await copySrcToHistoryFolder();
 };
 
+const getReactCode = async (text) => {
+    text =replaceTextBeforeImport(text)
+   
+    logMessage('Full code:', text);
+   
+    const currentDir = path.dirname(new URL(import.meta.url).pathname);
+    const srcDir = path.join(currentDir, 'src');
+    await fs.mkdir(srcDir, { recursive: true });
+
+    const reactFilePath = path.join(srcDir, 'react-app.js');
+   
+    await writeCodeToFile(reactFilePath, text);
+  
+    logMessage('React app code written to:', reactFilePath);
+    logMessage('React code:', text);    
+    const reactCode = text
+    return  reactCode
+};
+
+function replaceTextBeforeImport(text) {
+    const importIndex = text.indexOf("import");
+    if (importIndex !== -1) {
+      text = text.slice(importIndex);
+    }
+    return text;
+  }
+
 const extractAndWriteCodeToFile = async (text) => {
+    logMessage('Full code:', text);
     const reactCodeRegex = /\/\/ REACT-CODE([\s\S]+?)\/\/ CYPRESS-CODE/g;
     const reactCodeMatch = reactCodeRegex.exec(text);
     const reactCode = reactCodeMatch ? reactCodeMatch[1].trim() : '';
@@ -123,9 +154,12 @@ const extractAndWriteCodeToFile = async (text) => {
     await writeCodeToFile(reactFilePath, reactCode);
     await writeCodeToFile(cypressFilePath, cypressCode);
     progressBar.update(35);
-    console.log(' | React app code written to:', reactFilePath);
+    logMessage('React app code written to:', reactFilePath);
+    logMessage('React code:', reactCode);
+
     progressBar.update(37);
-    console.log(' | Cypress test code written to:', cypressFilePath);
+    logMessage('Cypress test code written to:', cypressFilePath);
+    logMessage('Cypress code:', cypressCode);
     return { reactCode, cypressCode}
 };
 
@@ -138,19 +172,19 @@ const createReactApp = async () => {
   
     try {
       // check if react app directory already exists
-      console.log(`| Checking if React app directory exists at ${reactAppDir}...`);
+      logMessage(`Checking if React app directory exists at ${reactAppDir}...`);
       await fs.access(reactAppDir, 0);
       progressBar.update(45);
-      console.log(` | React app directory already exists at ${reactAppDir}. Skipping creation.`);
+      logMessage(`React app directory already exists at ${reactAppDir}. Skipping creation.`);
       return;
     } catch (err) {
       // directory does not exist, create react app
       progressBar.update(45);
-      console.log(`fs.access(${reactAppDir}, fs.constants.F_OK) returned an error: ${err}`);
-      const command = 'npx create-react-app react-app';
+      logMessage(`fs.access(${reactAppDir}, fs.constants.F_OK) returned an error: ${err}`);
+      const command = 'npx create-react-app react-app && cd react-app && npm add cypress && cp ../cypress.config.js ./ && cp -r ../cypress-folder ./';
       await promisify(exec)(command);
       progressBar.update(47);
-      console.log(` | React app created at ${reactAppDir}.`);
+      logMessage(`React app created at ${reactAppDir}.`);
     }
   };
 
@@ -159,14 +193,14 @@ const copyReactCodeToReactApp = async (reactAppPath, reactCode) => {
     const appFilePath = path.join(reactAppPath, 'src', 'App.js');
     await writeCodeToFile(appFilePath, reactCode);
     progressBar.update(55);
-    console.log(` | React app code written to: ${appFilePath}`);
+    logMessage(`React app code written to: ${appFilePath}`);
 };
 
 const installDependenciesAndBuildReactApp = async (reactAppPath) => {
-    const command = `cd ${reactAppPath} && npm install && npm run build`;
+    const command = `cd ${reactAppPath} && npm install && npm run build `;
     await promisify(exec)(command);
     progressBar.update(65);
-    console.log(` | React app built at ${path.join(reactAppPath, 'build')}`);
+    logMessage(`React app built at ${path.join(reactAppPath, 'build')}`);
 };
 
 const createRandomBucketName = async () => {
@@ -177,7 +211,7 @@ const createRandomBucketName = async () => {
 const createBucket = async (bucketName) => {
     const createBucketParams = { Bucket: bucketName };
     await s3.createBucket(createBucketParams).promise();
-    console.log(` | S3 bucket created: ${bucketName}`);
+    logMessage(`S3 bucket created: ${bucketName}`);
 };
 
 const setBucketPolicy = async (bucketName) => {
@@ -194,11 +228,11 @@ const setBucketPolicy = async (bucketName) => {
 
     const setBucketPolicyParams = { Bucket: bucketName, Policy: JSON.stringify(publicReadPolicy) };
     await s3.putBucketPolicy(setBucketPolicyParams).promise();
-    console.log(` | Bucket policy set for ${bucketName}`);
+    logMessage(`Bucket policy set for ${bucketName}`);
 };
 
 const uploadBuildDirectoryToBucket = async (bucketName, buildPath) => {
-    const s3UploadCommand = `aws s3 cp ${buildPath} s3://${bucketName} --recursive --metadata-directive REPLACE --cache-control max-age=31536000,public --exclude "*.map" --exclude "service-worker.js" --exclude "robots.txt" --include "*.html" --include "*.css" --acl public-read --content-encoding identity --storage-class REDUCED_REDUNDANCY`;
+    const s3UploadCommand = `aws s3 cp ${buildPath} s3://${bucketName} --recursive --metadata-directive REPLACE --cache-control max-age=31536000,public --exclude "service-worker.js" --exclude "robots.txt" --include "*.html" --include "*.css" --acl public-read --content-encoding identity --storage-class REDUCED_REDUNDANCY`;
     await promisify(exec)(s3UploadCommand);
 };
 
@@ -212,8 +246,62 @@ const copySrcToHistoryFolder = async () => {
     const command = `cp -r ${srcDir} ${historyDir}`;
     await promisify(exec)(command);
   
-    console.log(` | Copied src folder to ${historyDir}`);
+    logMessage(`Copied src folder to ${historyDir}`);
   };
 
 const appDescription = process.argv[2] || 'App to manage a todo list';
 callAPI(appDescription);
+
+
+let logFilePath;
+
+const logMessage = async (message) => {
+    const currentDir = path.dirname(new URL(import.meta.url).pathname);
+    const logDir = path.join(currentDir, 'logs');
+    await fs.mkdir(logDir, { recursive: true });
+    if (!logFilePath) {
+        logFilePath = path.join(logDir, `log_${new Date().toISOString().replace(/:/g, '-')}.txt`);
+    }
+    const logMessage = `${new Date().toISOString()} - ${message}\n`;
+    await fs.appendFile(logFilePath, logMessage);
+};
+
+const runReactAppAndCypressTests = async () => {
+  const reactAppPath = 'react-app';
+
+  // Start React app
+  const startAppProcess = exec('npm run start', { cwd: reactAppPath });
+  startAppProcess.stdout.on('data', (data) => {
+    console.log(`stdout: ${data}`);
+  });
+  startAppProcess.stderr.on('data', (data) => {
+    console.error(`stderr: ${data}`);
+  });
+
+  // Wait until app is available on localhost:3000
+  let appIsAvailable = false;
+  while (!appIsAvailable) {
+    try {
+      const response = await fetch('http://localhost:3000');
+      if (response.ok) {
+        appIsAvailable = true;
+        //console.log('React app is available on http://localhost:3000');
+        logMessage('React app is available for test on http://localhost:3000')
+      }
+    } catch (error) {
+        //console.log(error)
+      // App not available yet, wait for a bit and try again
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      logMessage('waiting for app to be ready on http://localhost:3000');
+    }
+  }
+
+  // Run Cypress tests
+  const runTestsProcess = exec('npx cypress run --spec cypress/e2e/app-health.cy.js', { cwd: reactAppPath });
+  runTestsProcess.stdout.on('data', (data) => {
+    logMessage(`stdout: ${data}`);
+  });
+  runTestsProcess.stderr.on('data', (data) => {
+    logMessage(`stderr: ${data}`);
+  });
+};
